@@ -1,0 +1,101 @@
+*og.txt*   Edit OpenGate artifacts in Neovim              *og* *og.nvim*
+
+An unofficial community plugin. Not an Amplia Soluciones product and not
+supported by Amplia. It drives the `og` CLI, which can write to a production
+OpenGate tenant.
+
+==============================================================================
+CONTENTS                                                       *og-contents*
+
+  1. Requirements ........................... |og-requirements|
+  2. Commands ............................... |og-commands|
+  3. Configuration .......................... |og-configuration|
+  4. Typings ................................ |og-typings|
+  5. Health ................................. |og-health|
+
+==============================================================================
+1. REQUIREMENTS                                            *og-requirements*
+
+- Neovim 0.10 or newer (uses |vim.system()|).
+- The `og` binary on $PATH, logged in with `og login`.
+
+The plugin stores no credentials. Host, token, organization and profile come
+from og's own configuration.
+
+==============================================================================
+2. COMMANDS                                                    *og-commands*
+
+Every command acts on the artifact the current buffer belongs to. The artifact
+directory is found by walking up for rule.json, connectorfunction.json,
+provisionfunction.json, widget.json, dashboard.json or workspace.json. The
+nearest one wins, so editing a widget acts on the widget rather than on the
+workspace above it.
+
+                                                                    *:OgDiff*
+:OgDiff             Open the current file against its remote content in diff
+                    mode. Uses Neovim's own diff, so ]c, [c, do and dp behave
+                    exactly as they do everywhere else. The remote side is a
+                    read-only scratch buffer named og-remote://<id>/<file>.
+
+                                                                  *:OgStatus*
+:OgStatus [profile] Show what deploying the whole artifact would change --
+                    metadata and every code file -- as rendered by `og diff`.
+                    With a profile name, compares against that tenant instead,
+                    which is the promotion question rather than the drift one.
+
+                                                                *:OgValidate*
+:OgValidate         Run `og <family> validate` and publish the findings as
+                    diagnostics. Local and credential-free. This is not a
+                    JavaScript checker: see |og-typings|.
+
+                                                                  *:OgDeploy*
+:OgDeploy           Show what would change, ask, then deploy. :OgDeploy! skips
+                    the confirmation.
+
+                                                                 *:OgTypegen*
+:OgTypegen          Regenerate og-globals.d.ts and jsconfig.json for this
+                    artifact. They are derived from the organization's
+                    datamodel and go stale when it gains a datastream.
+
+==============================================================================
+3. CONFIGURATION                                          *og-configuration*
+
+>lua
+    require("og").setup({
+      bin = "og",
+      org = nil,
+      profile = nil,
+      timeout = 30000,
+      validate_on_save = true,
+      deploy_on_save = false,
+      diagnostics = { enabled = true },
+    })
+<
+                                                        *og-deploy-on-save*
+deploy_on_save is off by default and worth leaving off: a plugin that pushes
+on every :w eventually pushes something you were still thinking about. For
+deploy-on-save from a terminal use `og watch`, which has a conflict guard and
+refuses to run against a profile marked production.
+
+Do not run both over the same tree. Two watchers produce duplicate deploys.
+
+==============================================================================
+4. TYPINGS                                                      *og-typings*
+
+Completion and diagnostics for the JavaScript itself do not come from this
+plugin, and you have them without it. `og typegen` writes og-globals.d.ts and
+jsconfig.json into the artifact directory -- the platform's functions, your
+organization's datastream identifiers, the rule's own parameters -- and any
+LSP setup with ts_ls or vtsls consumes them.
+
+What this plugin adds is what surrounds that: remote diffs, artifact-level
+validation, and deploying without leaving the editor.
+
+==============================================================================
+5. HEALTH                                                        *og-health*
+
+:checkhealth og     Verify the Neovim version, that the binary exists and
+                    runs, that it is new enough to provide the remote side of
+                    :OgDiff, and warn when deploy_on_save is on.
+
+vim:tw=78:ts=8:noet:ft=help:norl:
