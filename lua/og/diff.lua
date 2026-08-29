@@ -17,36 +17,122 @@ local cli = require("og.cli")
 
 local M = {}
 
+--- code_files lists the artifact's own JavaScript files, by name.
+---
+--- Its own: the artifact directory itself, not a widget's below it. A dashboard
+--- offering its widgets' code would be answering a question nobody asked.
+---@param art og.Artifact
+---@return string[]
+local function code_files(art)
+  local names = {}
+  for _, path in ipairs(vim.fn.glob(art.dir .. "/*.js", false, true)) do
+    table.insert(names, vim.fn.fnamemodify(path, ":t"))
+  end
+  table.sort(names)
+  return names
+end
+
+--- resolve_code_file decides which file the diff should show, then calls cb.
+---
+--- Invoked on a `.js` it is that file. Invoked on the artifact instead — on
+--- rule.json, or straight from :OgBrowse — a diff still needs a file, so one is
+--- resolved rather than refused. Metadata is never diffed as text; :OgStatus
+--- reports it structurally, which is the right shape for it.
+---
+--- The flat families carry exactly one code field, so the question below never
+--- comes up for them. A widget does: a list widget has one formatter per column,
+--- and there is no basis for guessing which of five was meant.
+---@param art og.Artifact The artifact the buffer is in.
+---@param anchor og.Artifact The artifact paths are measured against.
+---@param rel string
+---@param cb fun(file: string)
+local function resolve_code_file(art, anchor, rel, cb)
+  if rel:match("%.js$") then
+    cb(rel)
+    return
+  end
+
+  -- Names relative to the anchor, since that is what the remote side is asked
+  -- for: on a widget that is "<widget-dir>/<file>.js".
+  local prefix = ""
+  if anchor.dir ~= art.dir then
+    prefix = art.dir:sub(#anchor.dir + 2) .. "/"
+  end
+  local names = vim.tbl_map(function(name)
+    return prefix .. name
+  end, code_files(art))
+  if #names == 0 then
+    vim.notify(
+      ("og.nvim: this %s has no code file to diff — :OgStatus compares the whole artifact, metadata included"):format(
+        art.family.kind
+      ),
+      vim.log.levels.INFO
+    )
+    return
+  end
+  if #names == 1 then
+    cb(names[1])
+    return
+  end
+
+  vim.ui.select(names, { prompt = "Compare which file against the platform?" }, function(choice)
+    if choice then
+      cb(choice)
+    end
+  end)
+end
+
 --- open shows the current buffer against its remote content in diff mode.
 function M.open()
   local art = artifact.current()
   if not art then
     return
   end
-  if not art.id or art.id == "" then
+  if not art.family.remote_file then
+    vim.notify(
+      ("og.nvim: og has no single-file view of a %s — :OgStatus compares the whole tree"):format(art.family.kind),
+      vim.log.levels.INFO
+    )
+    return
+  end
+
+  -- A widget is read through its dashboard: `og dashboard show --path` takes the
+  -- widget directory and the file, which is exactly the path the pull wrote.
+  local anchor = artifact.anchor(art)
+  if not anchor then
+    return
+  end
+  if not anchor.id or anchor.id == "" then
     vim.notify(
       ("og.nvim: %s has no identifier in %s — nothing remote to compare against"):format(
-        art.family.kind,
-        art.family.meta
+        anchor.family.kind,
+        anchor.family.meta
       ),
       vim.log.levels.WARN
     )
     return
   end
 
-  local rel = artifact.code_file(art)
+  local rel = artifact.code_file(anchor)
   if not rel then
     vim.notify("og.nvim: this buffer is not a file inside the artifact directory", vim.log.levels.WARN)
     return
   end
-  if not rel:match("%.js$") then
-    vim.notify(
-      ("og.nvim: %s is not a code file — :OgStatus compares the whole artifact, metadata included"):format(rel),
-      vim.log.levels.INFO
-    )
-    return
-  end
+  resolve_code_file(art, anchor, rel, function(file)
+    -- The local side of a diff is a file on disk, so the window has to be
+    -- showing it: invoked on rule.json, the code file is opened first and the
+    -- comparison happens there.
+    if file ~= rel then
+      vim.cmd.edit(vim.fn.fnameescape(anchor.dir .. "/" .. file))
+    end
+    M.compare(anchor, file)
+  end)
+end
 
+--- compare puts the remote content of one file beside the current buffer.
+---@param art og.Artifact
+---@param rel string Path of the file relative to the artifact directory.
+function M.compare(art, rel)
   local local_buf = vim.api.nvim_get_current_buf()
   local local_win = vim.api.nvim_get_current_win()
 
@@ -92,6 +178,25 @@ function M.status(opts)
   local art = artifact.current()
   if not art then
     return
+  end
+
+  -- A widget has no diff of its own — it is a grid item, and the dashboard is
+  -- the smallest thing og can compare or deploy — so the comparison happens one
+  -- level up, and says so rather than looking like it ignored the request.
+  local target = artifact.anchor(art)
+  if not target then
+    return
+  end
+  if target.dir ~= art.dir then
+    vim.notify(
+      ("og.nvim: comparing the %s %s — og has no diff for a single %s."):format(
+        target.family.kind,
+        vim.fn.fnamemodify(target.dir, ":t"),
+        art.family.kind
+      ),
+      vim.log.levels.INFO
+    )
+    art = target
   end
 
   local args = { art.family.command, "diff", art.dir }

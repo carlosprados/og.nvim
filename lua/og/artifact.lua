@@ -12,17 +12,29 @@ local M = {}
 ---@field meta string Metadata filename that marks an artifact directory.
 ---@field command string og subcommand for this family.
 ---@field id_key string Field in the metadata holding the identifier.
+---@field remote_file boolean Whether one file can be read back from the platform.
+---@field anchor string "self", or the kind of the enclosing artifact that addresses it remotely.
 
 --- Ordered most specific first, so a widget directory inside a dashboard
 --- resolves to the widget.
+---
+--- `anchor` records which artifact addresses this one on the platform, and it is
+--- not always itself: a widget is a grid item rather than something the platform
+--- can name, so its code is read and its changes compared through the dashboard
+--- it sits in. That is og's own boundary — `og workspace watch` deploys a
+--- widget edit as its dashboard — and following it here is what lets the rest of
+--- this plugin stay a straight pass-through to the binary.
+---
+--- A workspace is the one artifact with no single-file view: `og workspace diff`
+--- compares the whole tree, and there is no `og workspace show --path`.
 ---@type og.Family[]
 M.families = {
-  { kind = "widget", meta = "widget.json", command = "widget", id_key = "i" },
-  { kind = "dashboard", meta = "dashboard.json", command = "dashboard", id_key = "_id" },
-  { kind = "rule", meta = "rule.json", command = "rules", id_key = "identifier" },
-  { kind = "connector-function", meta = "connectorfunction.json", command = "connectors", id_key = "identifier" },
-  { kind = "provision-function", meta = "provisionfunction.json", command = "provision", id_key = "provisionProcessorId" },
-  { kind = "workspace", meta = "workspace.json", command = "workspace", id_key = "_id" },
+  { kind = "widget", meta = "widget.json", command = "widget", id_key = "i", remote_file = true, anchor = "dashboard" },
+  { kind = "dashboard", meta = "dashboard.json", command = "dashboard", id_key = "_id", remote_file = true, anchor = "self" },
+  { kind = "rule", meta = "rule.json", command = "rules", id_key = "identifier", remote_file = true, anchor = "self" },
+  { kind = "connector-function", meta = "connectorfunction.json", command = "connectors", id_key = "identifier", remote_file = true, anchor = "self" },
+  { kind = "provision-function", meta = "provisionfunction.json", command = "provision", id_key = "provisionProcessorId", remote_file = true, anchor = "self" },
+  { kind = "workspace", meta = "workspace.json", command = "workspace", id_key = "_id", remote_file = false, anchor = "self" },
 }
 
 ---@class og.Artifact
@@ -113,6 +125,53 @@ function M.current()
   return artifact
 end
 
+--- anchor returns the artifact that addresses this one on the platform.
+---
+--- Itself for everything but a widget, which is addressed through the dashboard
+--- it belongs to. Notifies and returns nil when that dashboard is not there,
+--- because a widget directory on its own is not something og can act on.
+---@param art og.Artifact
+---@return og.Artifact|nil
+function M.anchor(art)
+  if art.family.anchor == "self" then
+    return art
+  end
+
+  local target
+  for _, family in ipairs(M.families) do
+    if family.kind == art.family.anchor then
+      target = family
+      break
+    end
+  end
+  if not target then
+    return art
+  end
+
+  local dir = vim.fn.fnamemodify(art.dir, ":h")
+  while dir and dir ~= "" do
+    local meta_path = dir .. "/" .. target.meta
+    if vim.fn.filereadable(meta_path) == 1 then
+      return M.find(meta_path)
+    end
+    local parent = vim.fn.fnamemodify(dir, ":h")
+    if parent == dir then
+      break
+    end
+    dir = parent
+  end
+
+  vim.notify(
+    ("og.nvim: a %s is addressed through its %s, and this one is not inside a pulled %s directory"):format(
+      art.family.kind,
+      target.kind,
+      target.kind
+    ),
+    vim.log.levels.WARN
+  )
+  return nil
+end
+
 --- code_file returns the buffer's path relative to its artifact directory.
 ---
 --- That relative name is how og addresses a remote file, so it is what `og
@@ -123,6 +182,9 @@ end
 function M.code_file(artifact, path)
   path = vim.fn.fnamemodify(path or vim.api.nvim_buf_get_name(0), ":p")
   local prefix = artifact.dir .. "/"
+  if artifact.dir:sub(-1) == "/" then
+    prefix = artifact.dir
+  end
   if path:sub(1, #prefix) ~= prefix then
     return nil
   end
