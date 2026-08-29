@@ -22,20 +22,27 @@ function M.run(opts)
     return
   end
 
-  local name = vim.fn.fnamemodify(art.dir, ":t")
-
-  local function go()
-    local args = { art.family.command, "deploy", art.dir, "--update" }
-    vim.notify(("og.nvim: deploying %s…"):format(name), vim.log.levels.INFO)
-    cli.run(args, function(res)
-      if res.code ~= cli.EXIT_OK then
-        cli.notify_failure(res, ("deploying %s failed"):format(name))
-        return
-      end
-      local msg = vim.trim(res.stdout)
-      vim.notify(msg ~= "" and ("og.nvim: " .. msg) or ("og.nvim: %s deployed."):format(name), vim.log.levels.INFO)
-    end)
+  -- A widget cannot be deployed on its own: the platform has no endpoint for a
+  -- grid item, so the dashboard is what goes. This is the rule `og workspace
+  -- watch` already follows for a widget edit, and the confirmation below shows
+  -- the dashboard's diff, so what is sent is what was agreed to.
+  local target = artifact.anchor(art)
+  if not target then
+    return
   end
+  if target.dir ~= art.dir then
+    vim.notify(
+      ("og.nvim: a %s deploys as its %s — %s is what will be sent."):format(
+        art.family.kind,
+        target.family.kind,
+        vim.fn.fnamemodify(target.dir, ":t")
+      ),
+      vim.log.levels.INFO
+    )
+    art = target
+  end
+
+  local name = vim.fn.fnamemodify(art.dir, ":t")
 
   if not opts.confirm then
     go()
@@ -45,6 +52,7 @@ function M.run(opts)
   -- Show what would change before asking. Deploying blind is exactly the habit
   -- the CLI's diff was written to break, and the plugin should not reintroduce
   -- it just because a keymap is quicker than a command.
+  --
   cli.run({ art.family.command, "diff", art.dir }, function(res)
     local summary = vim.trim(res.stdout)
     if res.code == cli.EXIT_OK and summary == "" then

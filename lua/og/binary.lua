@@ -9,14 +9,15 @@
 ---      plugin and nothing else.
 ---
 --- The version is checked as well as the presence, because the failure
---- otherwise is baffling: an og older than 2.3.0 has no `whoami`, and older
---- than 2.2.0 no `show --path`, so the diff opens empty and nothing says why.
+--- otherwise is baffling: an og older than 2.4.0 has no `dashboard show`, so a
+--- widget diff opens empty, and older than 2.3.0 no `whoami`, so the session is
+--- never checked and a lapsed login surfaces as a 401 instead.
 local config = require("og.config")
 
 local M = {}
 
 --- The oldest og with everything this plugin uses.
-M.MINIMUM_VERSION = "2.3.0"
+M.MINIMUM_VERSION = "2.4.0"
 
 local REPO = "carlosprados/og-cli"
 

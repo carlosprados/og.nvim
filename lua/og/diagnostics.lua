@@ -48,7 +48,7 @@ function M.run(bufnr, opts)
   if art.family.command == "workspace" or art.family.command == "dashboard" or art.family.command == "widget" then
     if not opts.silent then
       vim.notify(
-        ("og.nvim: %s has no validator — use :OgDiff, which covers this family"):format(art.family.kind),
+        ("og.nvim: %s has no validator — :OgStatus is what covers this family"):format(art.family.kind),
         vim.log.levels.INFO
       )
     end
