@@ -1,29 +1,66 @@
 *og.txt*   Edit OpenGate artifacts in Neovim              *og* *og.nvim*
 
 An unofficial community plugin. Not an Amplia Soluciones product and not
-supported by Amplia. It drives the `og` CLI, which can write to a production
-OpenGate tenant.
+supported by Amplia. It drives the `og` CLI, which writes to real OpenGate
+tenants. You are responsible for what you deploy.
 
 ==============================================================================
 CONTENTS                                                       *og-contents*
 
-  1. Requirements ........................... |og-requirements|
-  2. Commands ............................... |og-commands|
-  3. Configuration .......................... |og-configuration|
-  4. Typings ................................ |og-typings|
-  5. Health ................................. |og-health|
+  1. Quick start ............................ |og-quickstart|
+  2. Requirements ........................... |og-requirements|
+  3. Commands ............................... |og-commands|
+  4. Family support ......................... |og-families|
+  5. Browsing ............................... |og-browse|
+  6. Logging in ............................. |og-login|
+  7. Configuration .......................... |og-configuration|
+  8. Typings ................................ |og-typings|
+  9. Health ................................. |og-health|
+ 10. Troubleshooting ........................ |og-troubleshooting|
 
 ==============================================================================
-1. REQUIREMENTS                                            *og-requirements*
+1. QUICK START                                               *og-quickstart*
+
+Nothing has to be installed beforehand, the `og` binary included.
+
+With lazy.nvim, and note that the cmd list is what makes the commands exist
+before the plugin has loaded: >lua
+    {
+      "carlosprados/og.nvim",
+      cmd = {
+        "OgLogin", "OgInstall", "OgBrowse", "OgPull",
+        "OgDiff", "OgStatus", "OgValidate", "OgDeploy", "OgTypegen",
+      },
+      opts = {},
+    }
+<
+Then, in order:
+
+  :OgInstall      Only if `og` is not already on $PATH. Downloads the build
+                  for this machine, verifies its SHA-256, and uses that copy.
+  :OgLogin        Host, email, password, 2FA code, and how much access to ask
+                  for. See |og-login|.
+  :OgBrowse       Pick Rules, pick a rule, accept the directory offered. It
+                  is pulled and opened.
+  :OgDiff         After an edit: the tenant's version beside yours, in
+                  Neovim's own diff mode.
+
+Nothing is deployed until |:OgDeploy|, which shows the diff and asks first.
+
+==============================================================================
+2. REQUIREMENTS                                            *og-requirements*
 
 - Neovim 0.10 or newer (uses |vim.system()|).
-- The `og` binary on $PATH, logged in with `og login`.
+- The `og` binary, 2.4.0 or newer. |:OgInstall| fetches one; an older og on
+  $PATH is used but the plugin says which commands will not work.
+- For completion and JavaScript diagnostics, an LSP setup with ts_ls or
+  vtsls. See |og-typings|.
 
 The plugin stores no credentials. Host, token, organization and profile come
-from og's own configuration.
+from og's own configuration, so there is one place they can be wrong.
 
 ==============================================================================
-2. COMMANDS                                                    *og-commands*
+3. COMMANDS                                                    *og-commands*
 
 Every command acts on the artifact the current buffer belongs to. The artifact
 directory is found by walking up for rule.json, connectorfunction.json,
@@ -31,17 +68,46 @@ provisionfunction.json, widget.json, dashboard.json or workspace.json. The
 nearest one wins, so editing a widget acts on the widget rather than on the
 workspace above it.
 
+                                                                   *:OgLogin*
+:OgLogin            Collect credentials and run `og login`. Nothing is stored
+                    by this plugin. See |og-login|.
+
+                                                                 *:OgInstall*
+:OgInstall          Download the og CLI for this plugin into stdpath("data"),
+                    verifying its SHA-256 before use. Nothing else on the
+                    system is touched. Refuses to install on a checksum
+                    mismatch rather than running what arrived.
+
+                                                                  *:OgBrowse*
+:OgBrowse           List the tenant and open or pull an artifact. See
+                    |og-browse|.
+
+                                                                    *:OgPull*
+:OgPull             Re-pull the artifact this buffer belongs to, discarding
+                    local changes. Asks first, because that is what it does.
+
                                                                     *:OgDiff*
 :OgDiff             Open the current file against its remote content in diff
                     mode. Uses Neovim's own diff, so ]c, [c, do and dp behave
                     exactly as they do everywhere else. The remote side is a
                     read-only scratch buffer named og-remote://<id>/<file>.
 
+                    Run on the artifact rather than on a .js -- on rule.json,
+                    or straight after |:OgBrowse| -- it resolves the code
+                    file, asking which when an artifact has more than one.
+
+                    Not every family has a remote file view: see
+                    |og-families|.
+
                                                                   *:OgStatus*
 :OgStatus [profile] Show what deploying the whole artifact would change --
                     metadata and every code file -- as rendered by `og diff`.
                     With a profile name, compares against that tenant instead,
                     which is the promotion question rather than the drift one.
+
+                    On a widget or a dashboard this compares the workspace
+                    they belong to, and says so: og has no diff for either on
+                    its own.
 
                                                                 *:OgValidate*
 :OgValidate         Run `og <family> validate` and publish the findings as
@@ -58,7 +124,70 @@ workspace above it.
                     datamodel and go stale when it gains a datastream.
 
 ==============================================================================
-3. CONFIGURATION                                          *og-configuration*
+4. FAMILY SUPPORT                                              *og-families*
+
+og itself is not uniform across families, and the plugin follows it rather
+than pretending otherwise.
+
+  Family                        Diff  Status         Validate  Deploy ~
+  rule, connector function,
+  provision function            yes   yes            yes       yes
+  dashboard                     yes   yes            --        yes
+  widget                        yes   as dashboard   --        as dashboard
+  workspace                     --    yes            --        yes
+
+A widget is a grid item, not something the platform can address on its own, so
+the dashboard it sits in is the smallest unit og can compare or deploy.
+Editing a widget works exactly as editing a rule does -- |:OgDiff| on a
+formatter shows that formatter -- but |:OgStatus| and |:OgDeploy| act on the
+dashboard, and say so before they do. It is the same boundary `og watch`
+draws.
+
+A workspace is the one artifact with no single-file view: |:OgStatus| compares
+the whole tree instead.
+
+==============================================================================
+5. BROWSING                                                      *og-browse*
+
+|:OgBrowse| asks which family -- Rules, Connector functions, Provision
+functions, Workspaces -- and then lists what is on the tenant. A bullet marks
+what is already here; choosing it opens the file, and choosing anything else
+asks where to pull it and opens it there.
+
+Matching is by identifier rather than by folder name: names are not unique and
+slugs are derived.
+
+The list is a plain |vim.ui.select()|, which LazyVim, Telescope, fzf-lua and
+snacks all override -- so it is your own picker, with your own keymaps, and
+this plugin imposes no window layout.
+
+==============================================================================
+6. LOGGING IN                                                     *og-login*
+
+|:OgLogin| asks for the host (https://api.opengate.es unless yours is
+elsewhere), the email, the password and a 2FA code if the account has one.
+Then it asks how much access to request.
+
+The password is read with |inputsecret()|, so it is never echoed and never
+enters the command history, and it reaches og through the environment rather
+than the argument list: arguments are readable by anything that can list
+processes. og writes the token into its own profile, at mode 0600. This plugin
+stores nothing.
+
+                                                            *og-web-session*
+Why the access question exists: OpenGate allows one web session per user, and
+the Web API sign-in that workspaces and dashboards need can evict a browser
+session on the same account, repeatedly. Declining it covers rules, connector
+functions and provision functions and leaves the browser alone. A dedicated
+account for the CLI avoids the question entirely.
+
+Commands that need the platform check the session before doing the work rather
+than after failing: `og whoami` reads the token's own claims locally, so it
+costs a process and no request. Not being logged in and having a session
+expire need different things from you, and a 401 collapses both.
+
+==============================================================================
+7. CONFIGURATION                                          *og-configuration*
 
 >lua
     require("og").setup({
@@ -71,6 +200,9 @@ workspace above it.
       diagnostics = { enabled = true },
     })
 <
+With no setup() call at all the plugin uses `og` on $PATH and the profile og
+is already configured with, which is the common case.
+
                                                         *og-deploy-on-save*
 deploy_on_save is off by default and worth leaving off: a plugin that pushes
 on every :w eventually pushes something you were still thinking about. For
@@ -80,7 +212,7 @@ refuses to run against a profile marked production.
 Do not run both over the same tree. Two watchers produce duplicate deploys.
 
 ==============================================================================
-4. TYPINGS                                                      *og-typings*
+8. TYPINGS                                                      *og-typings*
 
 Completion and diagnostics for the JavaScript itself do not come from this
 plugin, and you have them without it. `og typegen` writes og-globals.d.ts and
@@ -88,14 +220,44 @@ jsconfig.json into the artifact directory -- the platform's functions, your
 organization's datastream identifiers, the rule's own parameters -- and any
 LSP setup with ts_ls or vtsls consumes them.
 
-What this plugin adds is what surrounds that: remote diffs, artifact-level
-validation, and deploying without leaving the editor.
+What this plugin adds is what surrounds that: browsing, remote diffs,
+artifact-level validation, deploying and logging in without leaving the
+editor.
 
 ==============================================================================
-5. HEALTH                                                        *og-health*
+9. HEALTH                                                        *og-health*
 
 :checkhealth og     Verify the Neovim version, that the binary exists and
                     runs, that it is new enough to provide the remote side of
-                    :OgDiff, and warn when deploy_on_save is on.
+                    |:OgDiff| and the session check, who is logged in, and
+                    warn when deploy_on_save is on.
+
+==============================================================================
+10. TROUBLESHOOTING                                      *og-troubleshooting*
+
+not logged in / session expired
+                    |:OgLogin|. The two are reported separately because they
+                    need different things from you.
+
+the og CLI was not found
+                    No og on $PATH. |:OgInstall|, or set bin in setup().
+
+older than 2.4.0    That og predates `dashboard show` and `dashboard diff`,
+                    so widgets are not editable. |:OgInstall| fetches a newer
+                    one.
+
+this file is not inside an artifact directory
+                    Nothing above the file holds a family's metadata file.
+                    |:OgBrowse| and pull one.
+
+og has no single-file view of a workspace
+                    Working as intended: |:OgStatus| compares the whole tree.
+                    See |og-families|.
+
+no completion in a .js
+                    That artifact has no og-globals.d.ts (|:OgTypegen|), or no
+                    LSP is attached to it. See |og-typings|.
+
+a diff opens empty  Usually an og too old for `show --path`.
 
 vim:tw=78:ts=8:noet:ft=help:norl:
