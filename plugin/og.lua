@@ -13,7 +13,22 @@ if vim.fn.has("nvim-0.10") ~= 1 then
   return
 end
 
-for _, name in ipairs({ "OgDiff", "OgStatus", "OgValidate", "OgDeploy", "OgTypegen" }) do
+-- Every command, not only the editing ones: :OgLogin and :OgInstall are what
+-- someone who has just installed the plugin needs first, and a stub list that
+-- omitted them made the login unreachable until something else had loaded it.
+local COMMANDS = {
+  "OgLogin",
+  "OgInstall",
+  "OgBrowse",
+  "OgPull",
+  "OgDiff",
+  "OgStatus",
+  "OgValidate",
+  "OgDeploy",
+  "OgTypegen",
+}
+
+for _, name in ipairs(COMMANDS) do
   if vim.fn.exists(":" .. name) == 0 then
     vim.api.nvim_create_user_command(name, function(opts)
       -- Replace the stubs with the real commands, then run the one that was
