@@ -28,12 +28,33 @@ M.EXIT_FAILURE = 2
 --- into an error would make every caller unwrap it again.
 ---@param args string[]
 ---@param cb fun(res: og.Result)
-function M.run(args, cb)
-  local cmd = { config.options.bin }
+---@param env table|nil environment overlay; secrets go here, never in args
+function M.run(args, cb, env)
+  local bin = require("og.binary").resolve()
+  if not bin then
+    -- resolve has already said what is wrong and how to fix it; a second
+    -- message here would be noise.
+    vim.schedule(function()
+      cb({ code = M.EXIT_FAILURE, stdout = "", stderr = "" })
+    end)
+    return
+  end
+
+  local cmd = { bin }
   vim.list_extend(cmd, config.global_args())
   vim.list_extend(cmd, args)
 
-  local ok, err = pcall(vim.system, cmd, { text = true, timeout = config.options.timeout }, function(out)
+  -- env is an overlay, not a replacement: og still needs PATH and HOME.
+  local opts = { text = true, timeout = config.options.timeout }
+  if env then
+    local merged = vim.fn.environ()
+    for k, v in pairs(env) do
+      merged[k] = v
+    end
+    opts.env = merged
+  end
+
+  local ok, err = pcall(vim.system, cmd, opts, function(out)
     vim.schedule(function()
       cb({ code = out.code, stdout = out.stdout or "", stderr = out.stderr or "" })
     end)
@@ -53,7 +74,7 @@ end
 --- place rather than as a nil field deep in a caller.
 ---@param args string[]
 ---@param cb fun(data: any|nil, res: og.Result)
-function M.run_json(args, cb)
+function M.run_json(args, cb, env)
   local full = vim.list_extend(vim.deepcopy(args), { "-o", "json" })
   M.run(full, function(res)
     if res.stdout == "" then
@@ -72,7 +93,7 @@ function M.run_json(args, cb)
     -- Not every command is enveloped yet; hand back what was parsed rather
     -- than pretending there was nothing.
     cb(decoded, res)
-  end)
+  end, env)
 end
 
 --- notify reports a failed invocation, preferring og's own message.
@@ -87,7 +108,9 @@ function M.notify_failure(res, context)
     msg = vim.trim(res.stdout)
   end
   if msg == "" then
-    msg = ("og exited %d"):format(res.code)
+    -- Nothing to add: the binary could not be resolved, and that was already
+    -- reported with the choices that go with it.
+    return
   end
   vim.notify(("og.nvim: %s\n%s"):format(context, msg), vim.log.levels.ERROR)
 end

@@ -41,4 +41,16 @@ function M.typegen()
   require("og.commands").typegen()
 end
 
+function M.login()
+  require("og.auth").login()
+end
+
+function M.browse()
+  require("og.browse").open()
+end
+
+function M.install()
+  require("og.binary").install()
+end
+
 return M

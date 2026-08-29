@@ -41,20 +41,24 @@ function M.check()
   end
   vim.health.ok("og found: " .. version:gsub("\n.*", ""))
 
-  -- `show` is what the diff view depends on and the newest thing the plugin
-  -- needs, so its absence is the useful signal that the binary is too old.
-  local probe = vim.system({ bin, "rules", "show", "--help" }, { text = true }):wait()
-  if probe.code ~= 0 then
-    vim.health.warn("this og has no `rules show` — :OgDiff will not work", {
-      "Update og to a build that includes `og <family> show --path`.",
-    })
+  -- The two newest things the plugin needs, so their absence is the useful
+  -- signal that the binary is too old for a specific feature.
+  if vim.system({ bin, "rules", "show", "--help" }, { text = true }):wait().code ~= 0 then
+    vim.health.warn("this og has no `rules show` — :OgDiff will not work", { "Run :OgInstall." })
   else
     vim.health.ok("`og rules show --path` is available (the remote side of :OgDiff)")
   end
 
-  local who = vim.system({ bin, "login", "--help" }, { text = true }):wait()
-  if who.code ~= 0 then
-    vim.health.warn("could not probe the CLI's login command")
+  if vim.system({ bin, "whoami", "--help" }, { text = true }):wait().code ~= 0 then
+    vim.health.warn("this og has no `whoami` — the session is not checked before work", { "Run :OgInstall." })
+  else
+    vim.health.ok("`og whoami` is available (the session check)")
+    local who = vim.system({ bin, "whoami" }, { text = true }):wait()
+    if who.code == 0 then
+      vim.health.ok("logged in: " .. vim.trim((who.stdout or ""):match("^[^\n]*") or ""))
+    else
+      vim.health.warn("not logged in", { "Run :OgLogin." })
+    end
   end
 
   vim.health.info("Credentials, host and organization come from og's own profile; this plugin stores none.")

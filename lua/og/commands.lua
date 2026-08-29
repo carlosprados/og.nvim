@@ -18,12 +18,32 @@ function M.register()
 
   local cmd = vim.api.nvim_create_user_command
 
+  cmd("OgLogin", function()
+    require("og.auth").login()
+  end, { desc = "og: log in to OpenGate" })
+
+  cmd("OgInstall", function()
+    require("og.binary").install()
+  end, { desc = "og: download the og CLI for this plugin" })
+
+  cmd("OgBrowse", function()
+    require("og.browse").open()
+  end, { desc = "og: browse the platform and pull an artifact" })
+
+  cmd("OgPull", function()
+    require("og.browse").pull_current()
+  end, { desc = "og: re-pull this artifact, discarding local changes" })
+
   cmd("OgDiff", function()
-    require("og.diff").open()
+    require("og.auth").ensure(function()
+      require("og.diff").open()
+    end)
   end, { desc = "og: diff this file against its remote content" })
 
   cmd("OgStatus", function(opts)
-    require("og.diff").status({ against = opts.args })
+    require("og.auth").ensure(function()
+      require("og.diff").status({ against = opts.args })
+    end)
   end, {
     nargs = "?",
     desc = "og: what deploying this artifact would change (optionally --against a profile)",
@@ -34,11 +54,15 @@ function M.register()
   end, { desc = "og: validate this artifact into the diagnostics list" })
 
   cmd("OgDeploy", function(opts)
-    require("og.deploy").run({ confirm = opts.bang ~= true })
+    require("og.auth").ensure(function()
+      require("og.deploy").run({ confirm = opts.bang ~= true })
+    end)
   end, { bang = true, desc = "og: deploy this artifact (! skips the confirmation)" })
 
   cmd("OgTypegen", function()
-    M.typegen()
+    require("og.auth").ensure(function()
+      M.typegen()
+    end)
   end, { desc = "og: regenerate the editor typings for this artifact" })
 
   -- Attaching per buffer rather than globally keeps the save hook off every
